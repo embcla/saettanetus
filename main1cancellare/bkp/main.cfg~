@@ -1,0 +1,25 @@
+// Main module configuration file. It has to be used in order to specify the initial conditions and to activate the flags
+// related to the startup of sotware modules.
+
+// Main flags to activate software modules.
+
+main =
+{
+	XBEE = 1;
+	O_AVOIDANCE_FUZZY = 0;
+	PRINT_LOOP_TIME = 0;
+	WEBCAM = 0;
+	IPHONE = 0;
+	CONSOLE = 0;
+	RFID = 0;
+	XBEE_SEND = 0;
+	CONSENSUS_PROTOCOL_ACTIVE = 0;
+	VIAPOINTS_SERVOING = 1;
+	MAIN_DEBUG = 0;
+	USE_KALMAN = 0;
+	MAGNETO_CALIBRATION = 0;
+	GET_MAGNETO_BEARING = 0;
+	USE_PARTICLE_FILTER = 0;
+	MAIN_PRINT = 0;
+	VERBOSE_XBEE = 0;
+};

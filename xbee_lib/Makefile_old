@@ -1,0 +1,31 @@
+#Change application name
+PROGS     = pic-fox
+ 
+INSTDIR   = $(prefix)/usr/bin
+INSTMODE  = 0755
+INSTOWNER = root
+INSTGROUP = root
+ 
+#change obj list for this application
+OBJS = pic-fox.o XbeePro_API.o
+ 
+all: $(PROGS)
+$(PROGS): $(OBJS)
+	$(CC) $(CFLAGS) $(LDFLAGS) $^ $(LDLIBS) -o $@
+	$(STRIP) $@
+
+pic-fox: pic-fox.c 
+	$(CC) $(CFLAGS) -lm -pthread XbeePro_API.o -o $@ $< 
+
+XbeePro_API.o: XbeePro_API.c XbeePro_API.h
+	$(CC) $(CFLAGS)  $(VERBOSE)-c -o $@ $<
+
+#API_read.o: API_read.c XbeePro_API.h
+#	$(CC) $(CFLAGS)  $(VERBOSE)-c -o $@ $<
+
+install: $(PROGS)
+	$(INSTALL) -d $(INSTDIR)
+	$(INSTALL) -m $(INSTMODE) -o $(INSTOWNER) -g $(INSTGROUP) $(PROGS) $(INSTDIR)
+ 
+clean:
+	rm -f $(PROGS) *.o core

@@ -1,0 +1,582 @@
+include "main.h"
+
+void main_init() {
+
+    int i;
+    float starting_speed = 0.0;
+    init_robot();
+    flag = 0;
+    robot_state = malloc(sizeof (float) *3);
+
+    for (i = 0; i < LEN_PIC_BUFFER; i++) {
+        set_vel_2_array(pic_buffer[i], starting_speed, starting_speed);
+    }
+
+    write(pic_fd, pic_message_reset_steps_acc, PACKET_TIMING_LENGTH + 1);
+    tcflush(pic_fd, TCOFLUSH);
+    sync();
+    steps_anomaly = 0;
+
+
+#ifdef DEBUG_TIMING
+	debug_fd = open("debug.txt",O_CREAT | O_WRONLY | O_TRUNC , S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH);
+        printf("Debug FD: %d\n",debug_fd);
+#endif
+
+#ifdef HOKUYO
+	init_urg_laser(&urg,ON_DEMAND);
+#endif
+
+#ifdef JOYSTICK
+	init_joystick();
+#endif
+	
+#ifdef EKF_LOC	
+	load_map("ekf_map.txt");
+    init_ekf();
+	xpost.x=77;
+	xpost.y=50;
+	xpost.th=0;	
+	
+	xpred.x=0;
+	xpred.y=0;
+	xpred.th=0;
+	
+#endif	
+	
+}
+
+//=========================================================================================================
+
+//=========================================================================================================
+
+void termination_handler(int signum) {
+
+    int i;
+
+#ifdef MAIN_DEBUG
+    printf("\nNum packet data: correct  %d wrong  %d sent_wrong: %d \n", num_packet_data_ok, num_packet_data_wrong, num_packet_sent_wrong);
+    printf("Num xbee packet sent: %d, ack received: %d \n", xbee_packet_sent, xbee_ack_received);
+    printf("Num xbee packet received: %d \n", xbee_packet_received);
+    for (i = 0; i < MAX_NEIGHBORS; i++) {
+        printf("%d: %d\n", i, xbee_packet_neighborhood[i]);
+    }
+#endif
+
+
+#ifdef PRINT_LOOP_TIME
+    if (tempi)
+        free(tempi);
+#endif    
+    fprintf(fp_log, "\nNum packet data: correct  %d wrong  %d sent_wrong: %d \n", num_packet_data_ok, num_packet_data_wrong, num_packet_sent_wrong);
+    fflush(fp_log);
+    fclose(fp_log);
+    printf("scritto\n");
+    set_vel_2_array(pic_buffer[pic_last_vel_2_send], 0, 0);
+    write(pic_fd, pic_buffer[pic_last_vel_2_write], PACKET_SPEED_LENGTH + 1);
+    sync();
+
+    // Clean the bufffer	
+    tcflush(pic_fd, TCIFLUSH);
+    tcflush(pic_fd, TCOFLUSH);	
+    
+    close_serial_comm();
+    close_robot_comm();
+    close_robot();
+    close(pic_fd);
+
+#ifdef DEBUG_TIMING
+    close(debug_fd);
+#endif
+
+#ifdef HOKUYO
+	close_urg_laser(urg);
+#endif
+
+#ifdef JOYSTICK
+	close_joystick();
+	pthread_cancel(thread_joy);
+#endif
+
+#ifdef EKF_LOC
+	close_ekf();
+#endif
+	
+    exit(0);
+}
+//=========================================================================================================
+
+//=========================================================================================================
+
+void setup_termination() {
+    if (signal(SIGINT, termination_handler) == SIG_IGN) signal(SIGINT, SIG_IGN);
+    if (signal(SIGHUP, termination_handler) == SIG_IGN) signal(SIGHUP, SIG_IGN);
+    if (signal(SIGTERM, termination_handler) == SIG_IGN) signal(SIGTERM, SIG_IGN);
+}
+//=========================================================================================================
+
+
+
+//=========================================================================================================
+#ifdef HOKUYO
+void* tf_laser_read(void* thread_arg)
+{
+  while(1)
+  {
+  read_laser_data(urg);
+  usleep(100000);
+  }
+}
+#endif
+//=========================================================================================================
+
+#ifdef JOYSTICK
+void* tf_joy_read(void* thread_arg)
+{
+	int bytes_read, addr_len;
+	int sin_size, connected;
+	
+	pay.v=0;
+	pay.w=0; 
+	addr_len = sizeof(struct sockaddr);
+	
+	sin_size = sizeof(struct sockaddr_in);
+	
+	
+	while(1) {
+        connected = accept(joy_fd, (struct sockaddr *)&client_addr,&sin_size);
+		
+        printf("\n I got a connection from (%s , %d)",
+			   inet_ntoa(client_addr.sin_addr),ntohs(client_addr.sin_port));
+		
+		while (1)
+		{
+						
+			bytes_read=recv(connected,&pay,sizeof(struct payload_pkg_trajectory),0);
+			
+			if (bytes_read==0) {
+				pay.v=0;
+				pay.w=0;				
+				break;
+			}
+						
+		}
+	}
+}
+
+#endif
+
+//=========================================================================================================
+void* tf_main(void* thread_arg) {
+
+    float angle;
+    float v_ref, w_ref;
+	int i;
+    long int counter=0;
+
+	
+
+#ifdef EKF_LOC	
+    int data[NUM_SENS];	// provided by ekf.h	
+#endif
+	
+#ifdef HOKUYO
+	int maximum_laser_data=get_data_max();	
+#endif
+	
+    setup_termination();
+
+#ifdef PRINT_LOOP_TIME
+    tempi = malloc(sizeof (struct timeval) *2);
+#endif
+
+    angle = 0.0;
+    gyro_integral = 0.0;
+    gyro_sup_integral = 0.0;
+    float a,b;
+    int cycle=0;
+
+    a=0;
+    b=0.2;
+    set_robot_speed(&a,&b);
+ #define RAD2DEG(x) ((float) x*180/M_PI )
+
+	struct timeval tvb, tva;
+
+while(1){
+	counter++;
+	printf("\nCycle: %ld\n",counter);
+	gettimeofday(&tvb,NULL); 
+	analizza_pacchetto();
+	gettimeofday(&tva,NULL);
+    	get_robot_state(&robot_state);
+	printf("%f\t%f\t%f\n",state[0],state[1],RAD2DEG(state[2]));
+	printf("lu: %f   \tlw: %f\n",last_v_ref,last_w_ref);
+	if (tva.tv_sec==tvb.tv_sec){
+		printf("Time: %ld\n", tva.tv_usec-tvb.tv_usec);
+		cycle+=tva.tv_usec-tvb.tv_usec;
+	}
+	else {
+		int delta;
+		delta = 1000000-tvb.tv_usec;
+		printf("Time2: %ld\n",tva.tv_usec+delta);
+		cycle+=tva.tv_usec+delta;
+	}
+	if (counter%2==0) {
+		printf("Total time: %ld\n",cycle);
+#ifdef DEBUG_TIMING
+		char debug_buf[12];
+		sprintf(debug_buf,"%ld\n",cycle);
+		write(debug_fd, debug_buf,strlen(debug_buf));
+#endif
+		cycle=0;
+	
+}
+		
+		
+
+}
+
+
+   	analizza_pacchetto();
+	get_robot_state(&robot_state);
+	printf("%f\t%f\t%f\n",state[0],state[1],RAD2DEG(state[2]));
+	printf("lu: %f   \tlw: %f\n",last_v_ref,last_w_ref);
+
+	sleep(2);
+        a=0;
+        b=0;
+        set_robot_speed(&a,&b);
+	analizza_pacchetto();
+	get_robot_state(&robot_state);
+	printf("%f\t%f\t%f\n",state[0],state[1],RAD2DEG(state[2]));
+	printf("lu: %f   \tlw: %f\n",last_v_ref,last_w_ref);
+
+	analizza_pacchetto();
+	get_robot_state(&robot_state);
+	printf("%f\t%f\t%f\n",state[0],state[1],RAD2DEG(state[2]));
+	printf("lu: %f   \tlw: %f\n",last_v_ref,last_w_ref);
+
+	analizza_pacchetto();
+	get_robot_state(&robot_state);
+	printf("%f\t%f\t%f\n",state[0],state[1],RAD2DEG(state[2]));
+	printf("lu: %f   \tlw: %f\n",last_v_ref,last_w_ref);
+
+
+	while(1);
+
+//   sleep(1);
+ //   b=0;
+ //   set_robot_speed(&a,&b);
+ 
+
+    //========================================================================
+    while (0) {
+
+
+		// Set Velocity	for the PIC			
+#ifdef JOYSTICK
+		set_robot_speed(&pay.v, &pay.w);
+#endif
+		
+		packet_type = analizza_pacchetto();
+                       
+        if (packet_type == LOAD_PACKET_ANALYZED) {
+            //============================================            
+            pthread_mutex_lock(&mutex_fp);
+            fflush(fp_log);
+            pthread_mutex_unlock(&mutex_fp);
+            flag = 0;
+        }
+
+		
+#ifdef EKF_LOC		
+#ifdef HOKUYO_SENSOR		
+		// To select the subset of laser beams of interests
+		// These are defined in ekf.c by ANGLE_H		
+		for (i=0; i<NUM_SENS; i++) {
+			obsv[i]=data_laser[ANGLE_IDX[i]];
+		}
+#endif
+		
+#ifdef IR_SENSOR		
+		for (i=0; i<NUM_SENS; i++){
+			obsv[i]= *(ir->range+i);
+//			printf("%f\n ", obsv[i]);
+		}		
+		
+#endif		
+		
+		// Get the latest control input
+		u[0]=last_v_ref;
+		u[1]=last_w_ref;
+		
+		// EKF Prediction
+//		EKF_Prediction(xpost, &xpred, u);
+		// Ekf Correction
+//		EKF_Correction(xpred, &xpost, obsv);		
+
+
+//	printf("%f\t%f\t%f\n",xpred.x, xpred.y, RAD2DEG(xpred.th));
+//	printf("%f\t%f\t%f\n",xpost.x, xpost.y, RAD2DEG(xpost.th));	
+	printf("%f\t%f\t%f\n",state[0],state[1],RAD2DEG(state[2]));
+	printf("u: %f   \tw: %f\n",u[0],u[1]);
+	printf("lu: %f   \tlw: %f\n",last_v_ref,last_w_ref);
+
+
+		
+#endif
+		
+		
+    }
+    //========================================================================
+
+}
+
+void* tf_read(void *args) {
+
+    int oldstate;
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &oldstate);
+
+    
+    setup_termination();
+    void *load;
+    int nRead;
+    uint8_ buf[3];
+    uint8_ *pkg;
+    int len;
+    int iid;
+    int id;
+    int sender;
+    struct payload_pkg_rob_command *pkg_rob_comm;
+    struct payload_pkg_trajectory  *pach;
+
+    xbee_packet_received = 0;
+    xbee_ack_received = 0;
+
+    while (1) {
+
+        printf("------------\n");
+        
+        
+        iid = -1;
+
+        /* Look for a command */
+        /* Lock the mutex on the job queue. */
+        nRead = readport(xbee_fd_r, buf, 3);
+
+        if (nRead == 3) {
+		if (buf[0] == 0x7e) {
+                printf("%02x\t%02x\n", buf[1], buf[2]);
+                len = MSB_LSB_2_INT(buf + 1, 2);
+                if (len > 0) {
+                    printf("Len pkg: %d\t", len);
+                    pkg = (uint8_ *) malloc(sizeof (uint8_)*(len + 1));
+                    nRead = readport(xbee_fd_r, pkg, len + 1);
+                    sender = pkg[2];
+                    printf("Sender: %2x\t%d\n", pkg[2], sender);
+                    ++xbee_packet_neighborhood[sender];
+                    printf("Read pkg: %d\n", nRead);
+                    id = pkg_dispatcher(pkg, nRead, &iid, &load);
+                    if (id == rx_pack_16 && iid == pkg_1) {
+                        printf("---PARSER----\n");
+                        printf("Long: %ld\n", ((struct payload_pkg1 *) load)->i);
+                        printf("Float: %f\n", ((struct payload_pkg1 *) load)->j);
+                    }
+		xbee_packet_received++;
+                    switch (iid) {
+
+			   
+                        case pkg_state:
+                            //printf("pkg_state\n");
+			    break;
+			case pkg_trajectory:
+			    pach=(struct payload_pkg_trajectory*)load; 
+			    v_xbee=pach->v;
+			    w_xbee=pach->w;
+			    fprintf(stderr,"VELOCITA' RICEVUTE DA MATLAB: line=%f ang=%f\n",pach->v,pach->w);
+			    break;
+                        case pkg_webcam_data:
+                            printf("pkg_webcam_data\n");
+                            break;
+
+                        case pkg_rob_command:
+                            printf("pkg_rob_command\n");
+                            pkg_rob_comm = (struct payload_pkg_rob_command *) load;
+                            console_current_command = pkg_rob_comm->command[0];
+                            console_current_value1 = pkg_rob_comm->value;
+
+                            switch (console_current_command) {
+                                case 'v':
+                                    printf("Command v\tValue: %d\n", console_current_value1);
+                                    set_vel_2_array(pic_buffer[pic_last_vel_2_send], console_current_value1, console_current_value1);
+                                    pic_last_vel_2_send %= LEN_PIC_BUFFER;
+                                    break;
+
+                                case 'p':
+                                    printf("Command p\tValue: %d\n", console_current_value1);
+                                    break;
+
+                                case 'd':
+                                    printf("Command d\tValue: %d\n", console_current_value1);
+                                    break;
+                                case 't':
+                                    printf("Command d\tValue: %d\n", console_current_value1);
+                                    break;
+                                case 's':
+                                    printf("Command s\tValue: %d\n", console_current_value1);
+                                    break;
+                                default:
+                                    break;
+                            }
+
+                            break;
+
+                        default:
+                            break;
+
+                    }
+
+
+                    free(pkg);
+                }
+                printf("Len: %d\n", len);
+
+            }
+#ifdef VERBOSE_XBEE
+            printf("nRead(in): %d\t", nRead);
+            print_pkg(buf, nRead);
+#endif
+        }
+#ifdef VERBOSE_XBEE
+        printf("nRead(out): %d\t", nRead);
+        print_pkg(buf, nRead);
+#endif
+    }
+    pthread_exit(NULL);
+
+}
+
+
+
+void* tf_pic2netus(void *args) {
+	
+	
+	int i;
+	char buf[256];
+	struct timeval tvb, tva;	
+	int counter;
+	int byte_read;
+
+#ifdef LOG_FROM_PIC_THREAD
+	int cycle;
+	char debug_buf[24];
+	log_fd=open("timing.txt",O_CREAT | O_WRONLY | O_TRUNC , S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH);
+#endif	
+
+	pic_fd=tty_open(PIC_DEV);
+
+#ifdef LOG_FROM_PIC_THREAD	
+	cycle=0;
+#endif
+	
+	counter=0;
+
+	// Hook cycle
+	do {	
+		read(pic_fd, buf, 1);
+	}
+	while(buf[0]!=0x0A);
+	
+	while(1) {
+		memset(buf,'\0',24);
+		counter++;
+		byte_read=0;
+		printf("Cycle: %d\n",counter);
+		gettimeofday(&tvb,NULL);
+                // Get the start
+		do {
+                        read(pic_fd, buf, 1);
+		}
+                while(buf[0]!='S');
+		byte_read++;
+		// Get the whole pkg
+		do {
+			read(pic_fd,buf+byte_read,1);
+			byte_read++;
+		}
+		while(*(buf+byte_read-1)!='\n');
+		gettimeofday(&tva,NULL);
+
+
+
+		for (i=0; i< byte_read; i++) {
+			printf("%02x\t",buf[i]);
+		//	printf("%c\t",buf[i]);
+		}	
+		printf("\n");
+
+	        if (tva.tv_sec==tvb.tv_sec){
+  //      	        printf("%ld  \t%d\n", tva.tv_usec-tvb.tv_usec, byte_read);
+#ifdef LOG_FROM_PIC_THREAD
+                	cycle=tva.tv_usec-tvb.tv_usec;
+#endif
+        	}
+        	else {
+                	int delta;
+                	delta = 1000000-tvb.tv_usec;
+//                	printf("%ld  \t%d\n",tva.tv_usec+delta, byte_read);
+#ifdef LOG_FROM_PIC_THREAD
+                	cycle=tva.tv_usec+delta;
+#endif
+        	}
+
+#ifdef LOG_FROM_PIC_THREAD
+                sprintf(debug_buf,"%ld  \t%d\n",cycle,byte_read);
+                write(log_fd, debug_buf,strlen(debug_buf));
+#endif
+		pthread_cond_signal(&cond);
+
+	}
+	
+}
+
+
+
+
+
+//=========================================================================================================
+
+int main(int argc, char* argv[]) {
+
+    printf("INIT\n");
+
+    main_init();
+
+    fp_log = fopen(file_log, "w");
+    setup_termination();
+
+    pthread_attr_t attr_main;
+    pthread_attr_init(&attr_main);
+	// Main thread
+	pthread_create(&thread_main, &attr_main, &tf_main, NULL);
+	pthread_create(&thread_pic, &attr_main, &tf_pic2netus, NULL);	
+
+#ifdef JOYSTICK
+    pthread_create(&thread_joy, &attr_main, &tf_joy_read, NULL);	
+#endif
+
+#ifdef HOKUYO
+    pthread_create(&thread_laser, &attr_main, &tf_laser_read, NULL);	
+#endif
+	
+    printf("FD Pic: %d\n", pic_fd);
+    printf("FD Xbee Write: %d\n ", xbee_fd_w);
+    printf("FD Xbee Read: %d\n ", xbee_fd_r);
+    pthread_join(thread_main, NULL);
+    return 0;
+}
+//=========================================================================================================
+
+
+

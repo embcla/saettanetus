@@ -1,0 +1,26 @@
+#define	CONSOLE_COMMAND_SET_ANGLE			'a'
+
+#define	CONSOLE_COMMAND_SET_CIRC			'c'
+
+#define	CONSOLE_COMMAND_SET_DIST			'd'
+
+#define	CONSOLE_COMMAND_SET_SELF_ROTATION	'f'
+
+#define	CONSOLE_COMMAND_V_SX				'l'
+
+#define	CONSOLE_COMMAND_SERVOING			'p'
+
+#define	CONSOLE_COMMAND_MOTOR_OFF			'o'
+
+#define	CONSOLE_COMMAND_V_DX				'r'
+
+#define	CONSOLE_COMMAND_SET_RECT			's'
+
+#define	CONSOLE_COMMAND_SET_VEL				't'
+
+#define	CONSOLE_COMMAND_VEL					'v'
+
+#define	CONSOLE_COMMAND_POLAR_VEL			'x'
+
+
+

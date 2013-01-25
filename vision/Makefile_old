@@ -1,0 +1,36 @@
+AXIS_USABLE_LIBS = UCLIBC GLIBC
+include $(AXIS_TOP_DIR)/tools/build/Rules.axis
+
+PROGS     = libvision.so
+
+OBJS      = simple_image
+
+INSTDIR = $(prefix)/usr/bin
+
+all: $(PROGS)
+#LDFLAGS+= -lm 
+
+coordinates.o:
+	$(CC) -fpic -c coordinates.c
+frame.o:
+	$(CC) -fpic -c frame.c
+labelling.o:
+	$(CC) -fpic -c labelling.c
+lists.o:
+	$(CC) -fpic -c lists.c
+log.o:
+	$(CC) -fpic -c log.c
+v4l2_capture.o:
+	$(CC) -fpic -c v4l2_capture.c
+$(OBJS).o:	
+	$(CC) -fpic -c $(OBJS).c	
+
+$(PROGS): $(OBJS).o coordinates.o frame.o labelling.o lists.o log.o v4l2_capture.o
+	$(CC) $(OBJS).o coordinates.o frame.o labelling.o lists.o log.o v4l2_capture.o -shared -o $(PROGS)        
+#	$(CC) $(OBJS).o coordinates.o frame.o labelling.o lists.o log.o v4l2_capture.o -o prova
+
+install: $(PROGS)
+	cp *.so ../../librerie
+	cp *.h ../../include
+clean:
+	rm -f $(PROGS) *.o *.so core

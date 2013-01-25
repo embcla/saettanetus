@@ -1,0 +1,1 @@
+Ci sono delle define in robot_sensors.h che sono scritte piccole (i.e. magneto_log). CORREGGI!!!

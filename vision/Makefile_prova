@@ -1,0 +1,59 @@
+AXIS_USABLE_LIBS = UCLIBC GLIBC
+include $(AXIS_TOP_DIR)/tools/build/Rules.axis
+
+PROGS     = libvision.so
+
+OBJS      = simple_image
+
+INSTDIR = $(prefix)/usr/bin
+
+all: $(PROGS)
+#LDFLAGS+= -lm 
+
+coordinates.o:
+	$(CC) -fpic -c coordinates.c
+libcoordinates.so: coordinates.o
+	$(CC) coordinates.o -shared -o libcoordinates.so 
+
+frame.o:
+	$(CC) -fpic -c frame.c
+libframe.so: frame.o
+	$(CC) frame.o -shared -o libframe.so 
+
+labelling.o:
+	$(CC) -fpic -c labelling.c
+liblabelling.so: labelling.o
+	$(CC) labelling.o -shared -o liblabelling.so 
+
+lists.o:
+	$(CC) -fpic -c lists.c
+liblists.so: lists.o
+	$(CC) labelling.o -shared -o liblabelling.so 
+
+
+log.o:
+	$(CC) -fpic -c log.c
+liblabelling.so: labelling.o
+	$(CC) labelling.o -shared -o liblabelling.so 
+
+
+v4l2_capture.o:
+	$(CC) -fpic -c v4l2_capture.c
+
+serial_comm.o:
+	$(CC) -fpic -c serial_comm.c	
+libserial_comm.so: serial_comm.o
+	$(CC) serial_comm.o -shared -o libserial_comm.so 
+xbee_comm.o:
+	$(CC) -fpic -c xbee_comm.c	
+libxbee_comm.so: xbee_comm.o
+	$(CC) xbee_comm.o -shared -o libxbee_comm.so 
+$(OBJS).o:	
+	$(CC) -fpic -c $(OBJS).c	
+$(PROGS): $(OBJS).o libxbee_comm.so libserial_comm.so
+	$(CC) $(OBJS).o -shared -o $(PROGS) -L. -lxbee_comm -lserial_comm
+install: $(PROGS)
+	cp *.so ../../librerie
+	cp *.h ../../include
+clean:
+	rm -f $(PROGS) *.o *.so core

@@ -1,0 +1,39 @@
+#!/bin/bash
+
+echo '--------Verifica, eventuale creazione e pulizia della cartella binaria-----------------------------------'
+BINDIR=`pwd`/bin/
+
+if [ -d $BINDIR ];
+then
+   echo "$BINDIR exists"
+else
+   echo "$BINDIR does not exists. Creating it" && mkdir bin/
+fi
+
+BINDIR=`pwd`/bin/librerie
+
+if [ -d $BINDIR ];
+then
+   echo "$BINDIR exists."
+else
+   echo "$BINDIR does not exists. Creating it" && mkdir bin/librerie
+fi
+
+BINDIR=`pwd`/bin/include
+
+if [ -d $BINDIR ];
+then
+   echo "$BINDIR exists."
+else
+   echo "$BINDIR does not exists. Creating it" && mkdir bin/include
+fi
+
+BINDIR=`pwd`/bin/exec
+
+if [ -d $BINDIR ];
+then
+   echo "$BINDIR exists."
+else
+   echo "$BINDIR does not exists. Creating it" && mkdir bin/exec
+fi
+
